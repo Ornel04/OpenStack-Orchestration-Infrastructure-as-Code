@@ -1,0 +1,70 @@
+# defines which os and version the docker-images are run on.
+# we have to stick to ubuntu - there are no debian docker images for OVN yet
+kolla_base_distro: 'ubuntu'
+kolla_install_type: 'source'
+
+# openstack_release:
+# see https://docs.openstack.org/kolla-ansible/latest/reference/networking/neutron.html
+# see https://docs.openstack.org/kolla-ansible/latest/admin/production-architecture-guide.html#network-configuration
+# eth1 is the mngmnt interface
+# EXCLUDING here, so we can use / simulate control:vars / compute:vars to override the network_interface
+# we do this in config/group_vars (or /mnt/config in deployer)
+# per host, see "Host group vars" in https://docs.openstack.org/kolla-ansible/latest/user/multinode.html
+# network_interface: "eth1"
+
+# disabled since we are not using DVR
+# see https://docs.openstack.org/kolla-ansible/latest/reference/networking/neutron.html#provider-networks enable_neutron_provider_networks: 'no'
+enable_neutron_provider_networks: 'no'
+
+# switch to ovn
+neutron_plugin_agent: 'ovn'
+
+enable_neutron_port_forwarding: 'yes'
+
+# EXCLUDING here, so we can use / simulate control:vars / compute:vars to override the network_interface
+# we do this in config/group_vars (or /mnt/config in deployer)
+# per host, see "Host group vars" in https://docs.openstack.org/kolla-ansible/latest/user/multinode.html
+#neutron_external_interface: "eth2"
+#neutron_bridge_name: "br-wan"
+
+# https://docs.openstack.org/kolla-ansible/latest/reference/networking/neutron.html
+# see https://docs.openstack.org/kolla/newton/advanced-configuration.html
+# see https://docs.oracle.com/cd/E96260_01/E96263/html/kolla-endpoints.html
+# All compute nodes / controller must be in the same network, while this IP must yet not be assigned to any
+# any of those
+kolla_internal_vip_address: '172.27.240.2' # while controller also has 172.27.240.243 in addition by default
+
+#kolla_internal_fqdn=controller.lan
+#kolla_external_fqdn=controller.dev
+
+# for cinder see https://docs.openstack.org/kolla-ansible/latest/reference/storage/cinder-guide.html
+# Disable cinder, we do not require it. We use local storages on the compute nodes
+enable_cinder: 'yes'
+enable_cinder_backend_lvm: 'yes'
+
+node_custom_config: '/mnt/config/kolla/config-override'
+
+kolla_enable_tls_internal: 'false'
+kolla_enable_tls_external: 'false'
+kolla_enable_tls_backend: 'false'
+
+glance_file_datadir_volume: /mnt
+
+## Console see https://docs.openstack.org/kolla-ansible/latest/reference/compute/nova-guide.html#consoles
+# can be spice or none
+nove_console: nonvc
+# also // additionally enable serial console
+enable_nova_serialconsole_proxy: true
+
+# HACK/NO PRODUCTION: use qemu since for nested vritualization under virtualbox., kvm does kernel panic on guest instances
+nova_compute_virt_type: qemu
+# Previous settings doesn't seem mandatory anymore, switching back to kvm for better performances -> KO on cauchy 
+# nova_compute_virt_type: kvm
+
+# docker version pin (zun is not compatible at the moment with docker >= 23, so we choose to pin docker version for all the nodes)
+docker_apt_package_pin: "5:20.10.24*"
+docker_yum_package_pin: "20.*"
+
+# Add horizon multidomain support
+horizon_keystone_multidomain: True
+
