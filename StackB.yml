@@ -1,0 +1,128 @@
+heat_template_version: 2018-08-31
+
+description: >
+  Stack complète : Instance avec volumes persistants, IP flottante 
+  et script de personnalisation utilisateur.
+  
+# Paramètres nécessaires pour la création de l'instance
+parameters:
+  instance_name:
+    type: string
+    description: Nom de l'instance
+  image:
+    type: string
+    default: debian-11
+  flavor:
+    type: string
+  key_name:
+    type: string
+  system_volume_size:
+    type: number
+  data_volume_size:
+    type: number
+  data_device:
+    type: string
+    default: /dev/vdb
+  network:
+    type: string
+    description: Réseau interne (privé) du projet
+  security_group:
+    type: string
+    default: default-web-secgroup
+    description: Groupe de sécurité à appliquer
+  user_custom_script:
+    type: string
+    default: "#!/bin/bash\necho 'Aucun script fourni'"
+    description: Script shell complet pour l'installation d'applications
+  
+  floating_network_name:
+    type: string
+    default: Provider 
+    description: "Nom du réseau externe pour l'IP flottante"
+
+resources:
+  # 1. Volume Système Persistant
+  system_volume:
+    type: OS::Cinder::Volume
+    properties:
+      name: { str_replace: { template: system-NAME, params: { NAME: { get_param: instance_name } } } }
+      image: { get_param: image }
+      size: { get_param: system_volume_size }
+
+  # 2. Volume de Données Persistant
+  data_volume:
+    type: OS::Cinder::Volume
+    properties:
+      name: { str_replace: { template: data-NAME, params: { NAME: { get_param: instance_name } } } }
+      size: { get_param: data_volume_size }
+
+  # 3. Création du Port Réseau
+  web_server_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: network }
+      security_groups:
+        - { get_param: security_group }
+
+  # 4. Allocation de l'IP Flottante
+  floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: floating_network_name }
+
+  # 5. L'Instance
+  web_server:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: instance_name }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: web_server_port }
+      block_device_mapping_v2:
+        - volume_id: { get_resource: system_volume }
+          boot_index: 0
+          device_name: vda
+          delete_on_termination: false
+        - volume_id: { get_resource: data_volume }
+          boot_index: -1
+          device_name: { get_param: data_device }
+          delete_on_termination: false
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #cloud-config
+            fs_setup:
+              - label: data_vol
+                filesystem: 'ext4'
+                device: DEVICE
+                partition: auto
+            mounts:
+              - [ DEVICE, "/srv", "ext4", "defaults,nofail", "0", "2" ]
+            
+            write_files:
+              - path: /tmp/user_script.sh
+                permissions: '0755'
+                content: { get_param: user_custom_script }
+
+            runcmd:
+              - mkdir -p /srv/web/html
+              - /tmp/user_script.sh
+          params:
+            DEVICE: { get_param: data_device }
+
+  # 6. Association de l'IP flottante au Port
+  floating_ip_assoc:
+    type: OS::Neutron::FloatingIPAssociation
+    properties:
+      floatingip_id: { get_resource: floating_ip }
+      port_id: { get_resource: web_server_port }
+
+outputs:
+  private_ip:
+    description: Adresse IP sur le réseau interne
+    value: { get_attr: [web_server_port, fixed_ips, 0, ip_address] }
+  floating_ip_address:
+    description: Adresse IP publique (accessibilité extérieure)
+    value: { get_attr: [floating_ip, floating_ip_address] }

@@ -1,0 +1,97 @@
+heat_template_version: 2018-08-31
+
+description: >
+  Stack de création d'une instance simple avec volumes persistants (Système et Données).
+
+# Paramètres nécessaires pour la création de l'instance
+parameters:
+  instance_name:
+    type: string
+    description: "Nom de l'instance à déployer"
+  image:
+    type: string
+    default: debian-11
+    description: "Image à partir de laquelle déployer l'instance"
+  flavor:
+    type: string
+    description: "Le gabarit (flavor)"
+  key_name:
+    type: string
+    description: "La clé SSH à déployer"
+  system_volume_size:
+    type: number
+    description: "Taille du volume système (Go)"
+  data_volume_size:
+    type: number
+    description: "Taille du volume de données (Go)"
+  data_device:
+    type: string
+    default: /dev/vdb
+    description: "Pointeur du volume de données dans le système"
+  network:
+    type: string
+    description: "Le réseau sur lequel déployer l'instance"
+
+resources:
+  # 1. Volume Système Persistant
+  system_vol:
+    type: OS::Cinder::Volume
+    properties:
+      # str_replace construit le nom du volume
+      name: 
+        str_replace:
+          template: system-NAME
+          params:
+            NAME: { get_param: instance_name }
+      image: { get_param: image }
+      size: { get_param: system_volume_size }
+
+  # 2. Volume de Données Persistant
+  data_vol:
+    type: OS::Cinder::Volume
+    properties:
+      # str_replace construit le nom du volume 
+      name: 
+        str_replace:
+          template: data-NAME
+          params:
+            NAME: { get_param: instance_name }
+      size: { get_param: data_volume_size }
+
+  # 3. L'Instance Simple
+  simple_instance:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: instance_name }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - network: { get_param: network }
+      block_device_mapping_v2:
+        - volume_id: { get_resource: system_vol }
+          boot_index: 0
+          device_name: vda
+          delete_on_termination: false
+        - volume_id: { get_resource: data_vol }
+          boot_index: -1
+          device_name: { get_param: data_device }
+          delete_on_termination: false
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #cloud-config
+            fs_setup:
+              - label: data_vol
+                filesystem: 'ext4'
+                device: DEVICE
+                partition: auto
+            mounts:
+              - [ DEVICE, "/srv", "ext4", "defaults,nofail", "0", "2" ]
+          params:
+            DEVICE: { get_param: data_device }
+
+outputs:
+  instance_ip:
+    description: "Adresse IP privée de l'instance"
+    value: { get_attr: [simple_instance, first_address] }
